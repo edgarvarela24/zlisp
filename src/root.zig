@@ -22,3 +22,25 @@ test "basic int reading" {
         try std.testing.expectError(case.expected, readInt(case.val));
     }
 }
+
+const Value = union(enum) { int: i32 };
+
+pub fn read(val: []const u8) !Value {
+    const int = try readInt(val);
+    return .{ .int = int };
+}
+
+test "read returns Lisp value" {
+    const cases = .{ .{ .val = "42", .expected = 42 }, .{ .val = "-42", .expected = -42 } };
+
+    inline for (cases) |case| {
+        const result = try read(case.val);
+        try std.testing.expectEqual(case.expected, result.int);
+    }
+
+    const errorCases = .{.{ .val = "2147483648", .expected = error.Overflow }};
+
+    inline for (errorCases) |case| {
+        try std.testing.expectError(case.expected, readInt(case.val));
+    }
+}
