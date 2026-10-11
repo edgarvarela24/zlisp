@@ -16,7 +16,7 @@ test "basic int reading" {
         try std.testing.expectEqual(case.expected, readInt(case.val));
     }
 
-    const errorCases = .{ .{ .val = "", .expected = error.InvalidArgument }, .{ .val = "    ", .expected = error.InvalidArgument }, .{ .val = "abc", .expected = error.InvalidCharacter }, .{ .val = "2147483648", .expected = error.Overflow } };
+    const errorCases = .{ .{ .val = "", .expected = error.InvalidArgument }, .{ .val = "    ", .expected = error.InvalidArgument }, .{ .val = "abc", .expected = error.InvalidCharacter }, .{ .val = "2147483648", .expected = error.Overflow }, .{ .val = "42abc", .expected = error.InvalidCharacter }, .{ .val = "4 2", .expected = error.InvalidCharacter }, .{ .val = "-", .expected = error.InvalidCharacter } };
 
     inline for (errorCases) |case| {
         try std.testing.expectError(case.expected, readInt(case.val));
