@@ -23,10 +23,15 @@ test "basic int reading" {
     }
 }
 
-const Value = union(enum) { int: i32, list };
+const Value = union(enum) { int: i32, list, sym: []const u8 };
 
 pub fn read(val: []const u8) !Value {
     const trimmed = std.mem.trim(u8, val, &std.ascii.whitespace);
+
+    if (trimmed.len == 0) {
+        return error.InvalidArgument;
+    }
+
     const has_open = std.mem.startsWith(u8, trimmed, "(");
     const has_close = std.mem.endsWith(u8, trimmed, ")");
 
@@ -36,6 +41,19 @@ pub fn read(val: []const u8) !Value {
             return .list;
         }
     }
+
+    var is_sym = true;
+    for (trimmed) |c| {
+        if (!std.ascii.isAlphabetic(c)) {
+            is_sym = false;
+            break;
+        }
+    }
+
+    if (is_sym) {
+        return .{ .sym = trimmed };
+    }
+
     const int = try readInt(val);
     return .{ .int = int };
 }
@@ -61,4 +79,19 @@ test "read returns an empty list" {
     inline for (cases) |case| {
         try std.testing.expectEqual(case.expected, read(case.val));
     }
+}
+
+test "read returns a symbol" {
+    const cases = .{
+        .{ .val = "hello", .expected = "hello" },
+        .{ .val = "world", .expected = "world" },
+        .{ .val = "  hello  ", .expected = "hello" },
+    };
+
+    inline for (cases) |case| {
+        const result = try read(case.val);
+        try std.testing.expectEqualStrings(case.expected, result.sym);
+    }
+
+    try std.testing.expectError(error.InvalidCharacter, read("he2llo"));
 }
