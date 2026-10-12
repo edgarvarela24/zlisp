@@ -23,15 +23,25 @@ test "basic int reading" {
     }
 }
 
-const Value = union(enum) { int: i32 };
+const Value = union(enum) { int: i32, list };
 
 pub fn read(val: []const u8) !Value {
+    const trimmed = std.mem.trim(u8, val, &std.ascii.whitespace);
+    const has_open = std.mem.startsWith(u8, trimmed, "(");
+    const has_close = std.mem.endsWith(u8, trimmed, ")");
+
+    if (trimmed.len >= 2 and has_open and has_close) {
+        const only_whitespace = std.mem.trim(u8, trimmed[1 .. trimmed.len - 1], &std.ascii.whitespace).len == 0;
+        if (only_whitespace) {
+            return .list;
+        }
+    }
     const int = try readInt(val);
     return .{ .int = int };
 }
 
 test "read returns Lisp value" {
-    const cases = .{ .{ .val = "42", .expected = 42 }, .{ .val = "-42", .expected = -42 } };
+    const cases = .{ .{ .val = "42", .expected = 42 }, .{ .val = "-42", .expected = -42 }, .{ .val = "0", .expected = 0 } };
 
     inline for (cases) |case| {
         const result = try read(case.val);
@@ -41,6 +51,14 @@ test "read returns Lisp value" {
     const errorCases = .{.{ .val = "2147483648", .expected = error.Overflow }};
 
     inline for (errorCases) |case| {
-        try std.testing.expectError(case.expected, readInt(case.val));
+        try std.testing.expectError(case.expected, read(case.val));
+    }
+}
+
+test "read returns an empty list" {
+    const cases = .{ .{ .val = "()", .expected = .list }, .{ .val = "   ()   ", .expected = .list }, .{ .val = "( )", .expected = .list } };
+
+    inline for (cases) |case| {
+        try std.testing.expectEqual(case.expected, read(case.val));
     }
 }
