@@ -10,13 +10,26 @@ pub fn readInt(val: []const u8) !i32 {
 }
 
 test "basic int reading" {
-    const cases = .{ .{ .val = "42", .expected = 42 }, .{ .val = "0", .expected = 0 }, .{ .val = "-42", .expected = -42 }, .{ .val = "  42  ", .expected = 42 } };
+    const cases = .{
+        .{ .val = "42", .expected = 42 },
+        .{ .val = "0", .expected = 0 },
+        .{ .val = "-42", .expected = -42 },
+        .{ .val = "  42  ", .expected = 42 },
+    };
 
     inline for (cases) |case| {
         try std.testing.expectEqual(case.expected, readInt(case.val));
     }
 
-    const errorCases = .{ .{ .val = "", .expected = error.InvalidArgument }, .{ .val = "    ", .expected = error.InvalidArgument }, .{ .val = "abc", .expected = error.InvalidCharacter }, .{ .val = "2147483648", .expected = error.Overflow }, .{ .val = "42abc", .expected = error.InvalidCharacter }, .{ .val = "4 2", .expected = error.InvalidCharacter }, .{ .val = "-", .expected = error.InvalidCharacter } };
+    const errorCases = .{
+        .{ .val = "", .expected = error.InvalidArgument },
+        .{ .val = "    ", .expected = error.InvalidArgument },
+        .{ .val = "abc", .expected = error.InvalidCharacter },
+        .{ .val = "2147483648", .expected = error.Overflow },
+        .{ .val = "42abc", .expected = error.InvalidCharacter },
+        .{ .val = "4 2", .expected = error.InvalidCharacter },
+        .{ .val = "-", .expected = error.InvalidCharacter },
+    };
 
     inline for (errorCases) |case| {
         try std.testing.expectError(case.expected, readInt(case.val));
@@ -44,7 +57,7 @@ pub fn read(val: []const u8) !Value {
 
     var is_sym = true;
     for (trimmed) |c| {
-        if (!std.ascii.isAlphabetic(c)) {
+        if (!std.ascii.isAlphabetic(c) and c != '+' and c != '-') {
             is_sym = false;
             break;
         }
@@ -59,7 +72,11 @@ pub fn read(val: []const u8) !Value {
 }
 
 test "read returns Lisp value" {
-    const cases = .{ .{ .val = "42", .expected = 42 }, .{ .val = "-42", .expected = -42 }, .{ .val = "0", .expected = 0 } };
+    const cases = .{
+        .{ .val = "42", .expected = 42 },
+        .{ .val = "-42", .expected = -42 },
+        .{ .val = "0", .expected = 0 },
+    };
 
     inline for (cases) |case| {
         const result = try read(case.val);
@@ -74,7 +91,11 @@ test "read returns Lisp value" {
 }
 
 test "read returns an empty list" {
-    const cases = .{ .{ .val = "()", .expected = .list }, .{ .val = "   ()   ", .expected = .list }, .{ .val = "( )", .expected = .list } };
+    const cases = .{
+        .{ .val = "()", .expected = .list },
+        .{ .val = "   ()   ", .expected = .list },
+        .{ .val = "( )", .expected = .list },
+    };
 
     inline for (cases) |case| {
         try std.testing.expectEqual(case.expected, read(case.val));
@@ -86,6 +107,8 @@ test "read returns a symbol" {
         .{ .val = "hello", .expected = "hello" },
         .{ .val = "world", .expected = "world" },
         .{ .val = "  hello  ", .expected = "hello" },
+        .{ .val = "+", .expected = "+" },
+        .{ .val = "-", .expected = "-" },
     };
 
     inline for (cases) |case| {
