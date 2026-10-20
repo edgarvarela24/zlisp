@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const Value = union(enum) { int: i32, list: []const Value, sym: []const u8 };
 pub fn readInt(val: []const u8) !i32 {
     const trimmed = std.mem.trim(u8, val, &std.ascii.whitespace);
     if (trimmed.len == 0) {
@@ -36,9 +37,7 @@ test "basic int reading" {
     }
 }
 
-const Value = union(enum) { int: i32, list, sym: []const u8 };
-
-pub fn read(val: []const u8) !Value {
+pub fn read(allocator: std.mem.Allocator, val: []const u8) !Value {
     const trimmed = std.mem.trim(u8, val, &std.ascii.whitespace);
 
     if (trimmed.len == 0) {
@@ -51,8 +50,12 @@ pub fn read(val: []const u8) !Value {
     if (trimmed.len >= 2 and has_open and has_close) {
         const only_whitespace = std.mem.trim(u8, trimmed[1 .. trimmed.len - 1], &std.ascii.whitespace).len == 0;
         if (only_whitespace) {
-            return .list;
+            return .{ .list = &.{} };
         }
+        const contents = try read(allocator, trimmed[1 .. trimmed.len - 1]);
+        const slice = try allocator.alloc(Value, 1);
+        slice[0] = contents;
+        return .{ .list = slice };
     }
 
     var is_sym = true;
@@ -72,6 +75,11 @@ pub fn read(val: []const u8) !Value {
 }
 
 test "read returns Lisp value" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
     const cases = .{
         .{ .val = "42", .expected = 42 },
         .{ .val = "-42", .expected = -42 },
@@ -79,30 +87,42 @@ test "read returns Lisp value" {
     };
 
     inline for (cases) |case| {
-        const result = try read(case.val);
+        const result = try read(allocator, case.val);
         try std.testing.expectEqual(case.expected, result.int);
     }
 
     const errorCases = .{.{ .val = "2147483648", .expected = error.Overflow }};
 
     inline for (errorCases) |case| {
-        try std.testing.expectError(case.expected, read(case.val));
+        try std.testing.expectError(case.expected, read(allocator, case.val));
     }
 }
 
 test "read returns an empty list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
     const cases = .{
-        .{ .val = "()", .expected = .list },
-        .{ .val = "   ()   ", .expected = .list },
-        .{ .val = "( )", .expected = .list },
+        .{ .val = "()" },
+        .{ .val = "   ()   " },
+        .{ .val = "( )" },
     };
 
     inline for (cases) |case| {
-        try std.testing.expectEqual(case.expected, read(case.val));
+        const result = try read(allocator, case.val);
+        try std.testing.expectEqual(Value.list, std.meta.activeTag(result));
+        try std.testing.expectEqual(0, result.list.len);
     }
 }
 
 test "read returns a symbol" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
     const cases = .{
         .{ .val = "hello", .expected = "hello" },
         .{ .val = "world", .expected = "world" },
@@ -112,9 +132,26 @@ test "read returns a symbol" {
     };
 
     inline for (cases) |case| {
-        const result = try read(case.val);
+        const result = try read(allocator, case.val);
         try std.testing.expectEqualStrings(case.expected, result.sym);
     }
 
-    try std.testing.expectError(error.InvalidCharacter, read("he2llo"));
+    try std.testing.expectError(error.InvalidCharacter, read(allocator, "he2llo"));
+}
+
+test "read returns a list with one element" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    const cases = .{.{ .val = "(42)", .expected = 42 }};
+
+    inline for (cases) |case| {
+        const result = try read(allocator, case.val);
+        try std.testing.expectEqual(Value.list, std.meta.activeTag(result));
+        try std.testing.expectEqual(1, result.list.len);
+        try std.testing.expectEqual(Value.int, std.meta.activeTag(result.list[0]));
+        try std.testing.expectEqual(case.expected, result.list[0].int);
+    }
 }
