@@ -1,8 +1,14 @@
 const std = @import("std");
 
 const Value = union(enum) { int: i32, list: []const Value, sym: []const u8 };
+
 pub fn readInt(val: []const u8) !i32 {
-    const trimmed = std.mem.trim(u8, val, &std.ascii.whitespace);
+    const trimmed = std.mem.trim(
+        u8,
+        val,
+        &std.ascii.whitespace,
+    );
+
     if (trimmed.len == 0) {
         return error.InvalidArgument;
     }
@@ -12,27 +18,60 @@ pub fn readInt(val: []const u8) !i32 {
 
 test "basic int reading" {
     const cases = .{
-        .{ .val = "42", .expected = 42 },
-        .{ .val = "0", .expected = 0 },
-        .{ .val = "-42", .expected = -42 },
-        .{ .val = "  42  ", .expected = 42 },
+        .{
+            .val = "42",
+            .expected = 42,
+        },
+        .{
+            .val = "0",
+            .expected = 0,
+        },
+        .{
+            .val = "-42",
+            .expected = -42,
+        },
+        .{
+            .val = "  42  ",
+            .expected = 42,
+        },
     };
 
     inline for (cases) |case| {
         try std.testing.expectEqual(case.expected, readInt(case.val));
     }
 
-    const errorCases = .{
-        .{ .val = "", .expected = error.InvalidArgument },
-        .{ .val = "    ", .expected = error.InvalidArgument },
-        .{ .val = "abc", .expected = error.InvalidCharacter },
-        .{ .val = "2147483648", .expected = error.Overflow },
-        .{ .val = "42abc", .expected = error.InvalidCharacter },
-        .{ .val = "4 2", .expected = error.InvalidCharacter },
-        .{ .val = "-", .expected = error.InvalidCharacter },
+    const error_cases = .{
+        .{
+            .val = "",
+            .expected = error.InvalidArgument,
+        },
+        .{
+            .val = "    ",
+            .expected = error.InvalidArgument,
+        },
+        .{
+            .val = "abc",
+            .expected = error.InvalidCharacter,
+        },
+        .{
+            .val = "2147483648",
+            .expected = error.Overflow,
+        },
+        .{
+            .val = "42abc",
+            .expected = error.InvalidCharacter,
+        },
+        .{
+            .val = "4 2",
+            .expected = error.InvalidCharacter,
+        },
+        .{
+            .val = "-",
+            .expected = error.InvalidCharacter,
+        },
     };
 
-    inline for (errorCases) |case| {
+    inline for (error_cases) |case| {
         try std.testing.expectError(case.expected, readInt(case.val));
     }
 }
@@ -52,10 +91,22 @@ pub fn read(allocator: std.mem.Allocator, val: []const u8) !Value {
         if (only_whitespace) {
             return .{ .list = &.{} };
         }
-        const contents = try read(allocator, trimmed[1 .. trimmed.len - 1]);
-        const slice = try allocator.alloc(Value, 1);
-        slice[0] = contents;
-        return .{ .list = slice };
+        var arraylist: std.ArrayList(Value) = .empty;
+        defer arraylist.deinit(allocator);
+
+        const contents = trimmed[1 .. trimmed.len - 1];
+        var tokens = std.mem.tokenizeAny(u8, contents, &std.ascii.whitespace);
+
+        while (tokens.next()) |token| {
+            const v = try read(allocator, token);
+            try arraylist.append(allocator, v);
+        }
+
+        const slice = try arraylist.toOwnedSlice(allocator);
+
+        return .{
+            .list = slice,
+        };
     }
 
     var is_sym = true;
@@ -67,11 +118,15 @@ pub fn read(allocator: std.mem.Allocator, val: []const u8) !Value {
     }
 
     if (is_sym) {
-        return .{ .sym = trimmed };
+        return .{
+            .sym = trimmed,
+        };
     }
 
     const int = try readInt(val);
-    return .{ .int = int };
+    return .{
+        .int = int,
+    };
 }
 
 test "read returns Lisp value" {
@@ -81,9 +136,18 @@ test "read returns Lisp value" {
     const allocator = arena.allocator();
 
     const cases = .{
-        .{ .val = "42", .expected = 42 },
-        .{ .val = "-42", .expected = -42 },
-        .{ .val = "0", .expected = 0 },
+        .{
+            .val = "42",
+            .expected = 42,
+        },
+        .{
+            .val = "-42",
+            .expected = -42,
+        },
+        .{
+            .val = "0",
+            .expected = 0,
+        },
     };
 
     inline for (cases) |case| {
@@ -91,9 +155,9 @@ test "read returns Lisp value" {
         try std.testing.expectEqual(case.expected, result.int);
     }
 
-    const errorCases = .{.{ .val = "2147483648", .expected = error.Overflow }};
+    const error_cases = .{.{ .val = "2147483648", .expected = error.Overflow }};
 
-    inline for (errorCases) |case| {
+    inline for (error_cases) |case| {
         try std.testing.expectError(case.expected, read(allocator, case.val));
     }
 }
@@ -105,9 +169,15 @@ test "read returns an empty list" {
     const allocator = arena.allocator();
 
     const cases = .{
-        .{ .val = "()" },
-        .{ .val = "   ()   " },
-        .{ .val = "( )" },
+        .{
+            .val = "()",
+        },
+        .{
+            .val = "   ()   ",
+        },
+        .{
+            .val = "( )",
+        },
     };
 
     inline for (cases) |case| {
@@ -124,11 +194,26 @@ test "read returns a symbol" {
     const allocator = arena.allocator();
 
     const cases = .{
-        .{ .val = "hello", .expected = "hello" },
-        .{ .val = "world", .expected = "world" },
-        .{ .val = "  hello  ", .expected = "hello" },
-        .{ .val = "+", .expected = "+" },
-        .{ .val = "-", .expected = "-" },
+        .{
+            .val = "hello",
+            .expected = "hello",
+        },
+        .{
+            .val = "world",
+            .expected = "world",
+        },
+        .{
+            .val = "  hello  ",
+            .expected = "hello",
+        },
+        .{
+            .val = "+",
+            .expected = "+",
+        },
+        .{
+            .val = "-",
+            .expected = "-",
+        },
     };
 
     inline for (cases) |case| {
@@ -139,19 +224,29 @@ test "read returns a symbol" {
     try std.testing.expectError(error.InvalidCharacter, read(allocator, "he2llo"));
 }
 
-test "read returns a list with one element" {
+test "read returns a list with elements" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
     const allocator = arena.allocator();
 
-    const cases = .{.{ .val = "(42)", .expected = 42 }};
+    const cases = .{
+        .{
+            .val = "(42)",
+            .slice = &.{42},
+        },
+        .{
+            .val = "(42 7)",
+            .slice = &.{ 42, 7 },
+        },
+    };
 
     inline for (cases) |case| {
         const result = try read(allocator, case.val);
         try std.testing.expectEqual(Value.list, std.meta.activeTag(result));
-        try std.testing.expectEqual(1, result.list.len);
-        try std.testing.expectEqual(Value.int, std.meta.activeTag(result.list[0]));
-        try std.testing.expectEqual(case.expected, result.list[0].int);
+        try std.testing.expectEqual(case.slice.len, result.list.len);
+        inline for (case.slice, result.list) |slice_item, list_item| {
+            try std.testing.expectEqual(slice_item, list_item.int);
+        }
     }
 }
