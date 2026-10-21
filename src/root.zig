@@ -290,6 +290,13 @@ test "read returns a list of mixed values" {
                 .{ .int = 2 },
             }),
         },
+        .{ .val = "(42 (7 8))", .slice = @as([]const Value, &.{
+            .{ .int = 42 },
+            .{ .list = &.{
+                .{ .int = 7 },
+                .{ .int = 8 },
+            } },
+        }) },
     };
 
     inline for (cases) |case| {
