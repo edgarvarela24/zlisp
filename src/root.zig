@@ -87,10 +87,6 @@ pub fn read(allocator: std.mem.Allocator, val: []const u8) !Value {
     const has_close = std.mem.endsWith(u8, trimmed, ")");
 
     if (trimmed.len >= 2 and has_open and has_close) {
-        const only_whitespace = std.mem.trim(u8, trimmed[1 .. trimmed.len - 1], &std.ascii.whitespace).len == 0;
-        if (only_whitespace) {
-            return .{ .list = &.{} };
-        }
         var arraylist: std.ArrayList(Value) = .empty;
         defer arraylist.deinit(allocator);
 
@@ -162,31 +158,6 @@ test "read returns Lisp value" {
     }
 }
 
-test "read returns an empty list" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const allocator = arena.allocator();
-
-    const cases = .{
-        .{
-            .val = "()",
-        },
-        .{
-            .val = "   ()   ",
-        },
-        .{
-            .val = "( )",
-        },
-    };
-
-    inline for (cases) |case| {
-        const result = try read(allocator, case.val);
-        try std.testing.expectEqual(Value.list, std.meta.activeTag(result));
-        try std.testing.expectEqual(0, result.list.len);
-    }
-}
-
 test "read returns a symbol" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -232,6 +203,18 @@ test "read returns a list with elements" {
 
     const cases = .{
         .{
+            .val = "()",
+            .slice = &.{},
+        },
+        .{
+            .val = "(  )",
+            .slice = &.{},
+        },
+        .{
+            .val = "   ()   ",
+            .slice = &.{},
+        },
+        .{
             .val = "(42)",
             .slice = &.{42},
         },
@@ -239,14 +222,104 @@ test "read returns a list with elements" {
             .val = "(42 7)",
             .slice = &.{ 42, 7 },
         },
+        .{
+            .val = "(42 7 -1)",
+            .slice = &.{ 42, 7, -1 },
+        },
     };
 
     inline for (cases) |case| {
         const result = try read(allocator, case.val);
         try std.testing.expectEqual(Value.list, std.meta.activeTag(result));
         try std.testing.expectEqual(case.slice.len, result.list.len);
+
         inline for (case.slice, result.list) |slice_item, list_item| {
             try std.testing.expectEqual(slice_item, list_item.int);
+        }
+    }
+}
+
+test "read returns a list of symbols" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    const cases = .{
+        .{
+            .val = "(hello world)",
+            .slice = &.{ "hello", "world" },
+        },
+        .{
+            .val = "(+ x y)",
+            .slice = &.{ "+", "x", "y" },
+        },
+    };
+
+    inline for (cases) |case| {
+        const result = try read(allocator, case.val);
+        try std.testing.expectEqual(Value.list, std.meta.activeTag(result));
+        try std.testing.expectEqual(case.slice.len, result.list.len);
+
+        inline for (case.slice, result.list) |slice_item, list_item| {
+            try std.testing.expectEqualStrings(slice_item, list_item.sym);
+        }
+    }
+}
+
+test "read returns a list of mixed values" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    const cases = .{
+        .{
+            .val = "(hello 69 world)",
+            .slice = @as([]const Value, &.{
+                .{ .sym = "hello" },
+                .{ .int = 69 },
+                .{ .sym = "world" },
+            }),
+        },
+        .{
+            .val = "(+ 1 2)",
+            .slice = @as([]const Value, &.{
+                .{ .sym = "+" },
+                .{ .int = 1 },
+                .{ .int = 2 },
+            }),
+        },
+    };
+
+    inline for (cases) |case| {
+        const result = try read(allocator, case.val);
+        try std.testing.expectEqual(
+            Value.list,
+            std.meta.activeTag(result),
+        );
+        try std.testing.expectEqual(
+            case.slice.len,
+            result.list.len,
+        );
+
+        inline for (case.slice, result.list) |slice_item, list_item| {
+            try std.testing.expectEqual(
+                std.meta.activeTag(slice_item),
+                std.meta.activeTag(list_item),
+            );
+
+            switch (slice_item) {
+                .int => |value| {
+                    try std.testing.expectEqual(value, list_item.int);
+                },
+                .sym => |text| {
+                    try std.testing.expectEqualStrings(text, list_item.sym);
+                },
+                .list => {
+                    return error.NestedListComparisonnotSupported;
+                },
+            }
         }
     }
 }
