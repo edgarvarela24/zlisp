@@ -2,127 +2,115 @@ const std = @import("std");
 
 const Value = union(enum) { int: i32, list: []const Value, sym: []const u8 };
 
-pub fn readInt(val: []const u8) !i32 {
-    const trimmed = std.mem.trim(
-        u8,
-        val,
-        &std.ascii.whitespace,
-    );
+const Reader = struct {
+    input: []const u8,
+    allocator: std.mem.Allocator,
+    cursor: usize,
 
-    if (trimmed.len == 0) {
-        return error.InvalidArgument;
+    fn readOne(self: *Reader) anyerror!Value {
+        if (self.input.len == 0) {
+            return error.EmptyInput;
+        }
+        while (true) {
+            const token = self.input[self.cursor];
+            if (std.ascii.isWhitespace(token)) {
+                self.cursor += 1;
+            } else {
+                break;
+            }
+        }
+        if (self.input[self.cursor] == ')') {
+            return error.UnexpectedClosingParen;
+        }
+        if (self.input[self.cursor] == '(') {
+            return self.readList();
+        }
+        return self.readAtom();
     }
 
-    return std.fmt.parseInt(i32, trimmed, 10);
-}
-
-test "basic int reading" {
-    const cases = .{
-        .{
-            .val = "42",
-            .expected = 42,
-        },
-        .{
-            .val = "0",
-            .expected = 0,
-        },
-        .{
-            .val = "-42",
-            .expected = -42,
-        },
-        .{
-            .val = "  42  ",
-            .expected = 42,
-        },
-    };
-
-    inline for (cases) |case| {
-        try std.testing.expectEqual(case.expected, readInt(case.val));
-    }
-
-    const error_cases = .{
-        .{
-            .val = "",
-            .expected = error.InvalidArgument,
-        },
-        .{
-            .val = "    ",
-            .expected = error.InvalidArgument,
-        },
-        .{
-            .val = "abc",
-            .expected = error.InvalidCharacter,
-        },
-        .{
-            .val = "2147483648",
-            .expected = error.Overflow,
-        },
-        .{
-            .val = "42abc",
-            .expected = error.InvalidCharacter,
-        },
-        .{
-            .val = "4 2",
-            .expected = error.InvalidCharacter,
-        },
-        .{
-            .val = "-",
-            .expected = error.InvalidCharacter,
-        },
-    };
-
-    inline for (error_cases) |case| {
-        try std.testing.expectError(case.expected, readInt(case.val));
-    }
-}
-
-pub fn read(allocator: std.mem.Allocator, val: []const u8) !Value {
-    const trimmed = std.mem.trim(u8, val, &std.ascii.whitespace);
-
-    if (trimmed.len == 0) {
-        return error.InvalidArgument;
-    }
-
-    const has_open = std.mem.startsWith(u8, trimmed, "(");
-    const has_close = std.mem.endsWith(u8, trimmed, ")");
-
-    if (trimmed.len >= 2 and has_open and has_close) {
-        var arraylist: std.ArrayList(Value) = .empty;
-        defer arraylist.deinit(allocator);
-
-        const contents = trimmed[1 .. trimmed.len - 1];
-        var tokens = std.mem.tokenizeAny(u8, contents, &std.ascii.whitespace);
-
-        while (tokens.next()) |token| {
-            const v = try read(allocator, token);
-            try arraylist.append(allocator, v);
+    fn readAtom(self: *Reader) !Value {
+        const start = self.cursor;
+        var is_sym = true;
+        for (self.input[start..]) |token| {
+            if (std.ascii.isWhitespace(token) or token == '(' or token == ')') {
+                break;
+            }
+            self.cursor += 1;
+            if (!std.ascii.isAlphabetic(token) and token != '+' and token != '-') {
+                is_sym = false;
+            }
         }
 
-        const slice = try arraylist.toOwnedSlice(allocator);
+        const atom = self.input[start..self.cursor];
+
+        if (is_sym) {
+            return .{
+                .sym = try self.allocator.dupe(u8, atom),
+            };
+        }
+
+        const int = try std.fmt.parseInt(i32, atom, 10);
+        return .{
+            .int = int,
+        };
+    }
+
+    fn readList(self: *Reader) !Value {
+        self.cursor += 1;
+        var elements: std.ArrayList(Value) = .empty;
+        defer elements.deinit(self.allocator);
+
+        while (true) {
+            if (self.cursor == self.input.len) {
+                return error.UnexpectedEndOfInput;
+            }
+            const token = self.input[self.cursor];
+            if (std.ascii.isWhitespace(token)) {
+                self.cursor += 1;
+                continue;
+            }
+            if (token == ')') {
+                self.cursor += 1;
+                break;
+            }
+            const element = try self.readOne();
+            try elements.append(self.allocator, element);
+        }
+        const slice = try elements.toOwnedSlice(self.allocator);
 
         return .{
             .list = slice,
         };
     }
+};
 
-    var is_sym = true;
-    for (trimmed) |c| {
-        if (!std.ascii.isAlphabetic(c) and c != '+' and c != '-') {
-            is_sym = false;
-            break;
+/// read expects arena-managed storage for now. returned values remain valid until that
+/// arena is reset or destroyed
+pub fn read(allocator: std.mem.Allocator, val: []const u8) !Value {
+    const trimmed = std.mem.trim(u8, val, &std.ascii.whitespace);
+    if (trimmed.len == 0) {
+        return error.EmptyInput;
+    }
+
+    var reader = Reader{
+        .input = val,
+        .allocator = allocator,
+        .cursor = 0,
+    };
+
+    const value = try reader.readOne();
+    const remaining = reader.input[reader.cursor..];
+
+    for (remaining) |token| {
+        if (token == ')') {
+            return error.UnexpectedClosingParen;
+        }
+        if (!std.ascii.isWhitespace(token)) {
+            return error.TrailingInput;
         }
     }
 
-    if (is_sym) {
-        return .{
-            .sym = trimmed,
-        };
-    }
-
-    const int = try readInt(val);
-    return .{
-        .int = int,
-    };
+    return value;
 }
 
 test "read returns Lisp value" {
@@ -149,12 +137,6 @@ test "read returns Lisp value" {
     inline for (cases) |case| {
         const result = try read(allocator, case.val);
         try std.testing.expectEqual(case.expected, result.int);
-    }
-
-    const error_cases = .{.{ .val = "2147483648", .expected = error.Overflow }};
-
-    inline for (error_cases) |case| {
-        try std.testing.expectError(case.expected, read(allocator, case.val));
     }
 }
 
@@ -191,8 +173,6 @@ test "read returns a symbol" {
         const result = try read(allocator, case.val);
         try std.testing.expectEqualStrings(case.expected, result.sym);
     }
-
-    try std.testing.expectError(error.InvalidCharacter, read(allocator, "he2llo"));
 }
 
 test "read returns a list with elements" {
@@ -323,10 +303,98 @@ test "read returns a list of mixed values" {
                 .sym => |text| {
                     try std.testing.expectEqualStrings(text, list_item.sym);
                 },
-                .list => {
-                    return error.NestedListComparisonnotSupported;
+                .list => |list| {
+                    try std.testing.expectEqualDeep(list, list_item.list);
                 },
             }
         }
     }
+}
+
+test "read reports error cases" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+    const cases = .{
+        .{ .val = "2147483648", .expected = error.Overflow },
+        .{ .val = "he2llo", .expected = error.InvalidCharacter },
+        .{ .val = "", .expected = error.EmptyInput },
+        .{ .val = "(", .expected = error.UnexpectedEndOfInput },
+        .{ .val = "(42", .expected = error.UnexpectedEndOfInput },
+        .{ .val = "((42)", .expected = error.UnexpectedEndOfInput },
+        .{ .val = "(42 \t\n", .expected = error.UnexpectedEndOfInput },
+    };
+
+    inline for (cases) |case| {
+        try std.testing.expectError(case.expected, read(allocator, case.val));
+    }
+}
+
+test "read rejects whitespace-only input" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+    const cases = .{
+        " ",
+        "\t\n",
+        " \t\r\n ",
+    };
+
+    inline for (cases) |input| {
+        try std.testing.expectError(error.EmptyInput, read(allocator, input));
+    }
+}
+
+test "read rejects unexpected closing parentheses" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+    const cases = .{ ")", ")(", "  )" };
+
+    inline for (cases) |input| {
+        try std.testing.expectError(error.UnexpectedClosingParen, read(allocator, input));
+    }
+}
+
+test "read rejects extra closing parentheses" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+    const cases = .{ "(42))", "(42) )", "42)", "((42)))" };
+
+    inline for (cases) |input| {
+        try std.testing.expectError(error.UnexpectedClosingParen, read(allocator, input));
+    }
+}
+
+test "read rejects trailing values" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+    const cases = .{ "42 7", "(42) 7", "(42) (7)" };
+
+    inline for (cases) |input| {
+        try std.testing.expectError(error.TrailingInput, read(allocator, input));
+    }
+}
+
+test "symbol retains ownership" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+    var input = "hello".*;
+    const result = try read(allocator, &input);
+
+    try std.testing.expectEqualStrings("hello", result.sym);
+
+    input[0] = 'j';
+
+    try std.testing.expectEqualStrings("jello", &input);
+    try std.testing.expectEqualStrings("hello", result.sym);
 }
