@@ -311,6 +311,88 @@ test "read returns a list of mixed values" {
     }
 }
 
+test "read returns a list beginning with a nested list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const expected: Value = .{ .list = &.{
+        .{ .list = &.{.{ .int = 42 }} },
+    } };
+    const result = try read(arena.allocator(), "((42))");
+
+    try std.testing.expectEqualDeep(expected, result);
+}
+
+test "read returns sibling nested lists without separating whitespace" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const expected: Value = .{ .list = &.{
+        .{ .list = &.{.{ .int = 1 }} },
+        .{ .list = &.{.{ .int = 2 }} },
+    } };
+    const result = try read(arena.allocator(), "((1)(2))");
+
+    try std.testing.expectEqualDeep(expected, result);
+}
+
+test "read resumes the outer list after deeper nesting" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const expected: Value = .{ .list = &.{
+        .{ .int = 1 },
+        .{ .list = &.{
+            .{ .int = 2 },
+            .{ .list = &.{.{ .int = 3 }} },
+        } },
+        .{ .int = 4 },
+    } };
+    const result = try read(arena.allocator(), "(1 (2 (3)) 4)");
+
+    try std.testing.expectEqualDeep(expected, result);
+}
+
+test "read returns empty and nonempty nested lists together" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const expected: Value = .{ .list = &.{
+        .{ .list = &.{} },
+        .{ .list = &.{.{ .int = 42 }} },
+        .{ .list = &.{} },
+    } };
+    const result = try read(arena.allocator(), "(() (42) ())");
+
+    try std.testing.expectEqualDeep(expected, result);
+}
+
+test "read handles mixed values and whitespace across nesting levels" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const expected: Value = .{ .list = &.{
+        .{ .sym = "hello" },
+        .{ .list = &.{
+            .{ .int = 42 },
+            .{ .list = &.{.{ .sym = "world" }} },
+        } },
+    } };
+    const result = try read(arena.allocator(), " \t(hello\n (42\t(world)))\r\n");
+
+    try std.testing.expectEqualDeep(expected, result);
+}
+
+test "read propagates integer overflow from a nested list" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    try std.testing.expectError(
+        error.Overflow,
+        read(arena.allocator(), "(hello (2147483648))"),
+    );
+}
+
 test "read reports error cases" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
