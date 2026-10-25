@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Value = union(enum) { int: i32, list: []const Value, sym: []const u8 };
+const Value = union(enum) { int: i32, list: []const Value, sym: []const u8, str: []const u8 };
 
 const Reader = struct {
     input: []const u8,
@@ -29,7 +29,28 @@ const Reader = struct {
     }
 
     fn readAtom(self: *Reader) !Value {
-        const start = self.cursor;
+        var start = self.cursor;
+
+        if (self.input[start] == '"') {
+            self.cursor += 1;
+            start += 1;
+            var endQuote = false;
+            var end = start;
+            while (self.cursor < self.input.len) : (self.cursor += 1) {
+                if (self.input[self.cursor] == '"') {
+                    endQuote = true;
+                    end = self.cursor;
+                    self.cursor += 1;
+                    break;
+                }
+            }
+            if (endQuote) {
+                return .{ .str = self.input[start..end] };
+            } else {
+                return error.UnexpectedEndOfInput;
+            }
+        }
+
         var is_sym = true;
         for (self.input[start..]) |token| {
             if (std.ascii.isWhitespace(token) or token == '(' or token == ')') {
@@ -306,6 +327,9 @@ test "read returns a list of mixed values" {
                 .list => |list| {
                     try std.testing.expectEqualDeep(list, list_item.list);
                 },
+                .str => |string| {
+                    std.debug.print("%s", .{string});
+                },
             }
         }
     }
@@ -465,6 +489,15 @@ test "read rejects trailing values" {
     }
 }
 
+test "read rejects unfinished strings" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    try std.testing.expectError(error.UnexpectedEndOfInput, read(allocator, "\"unfinished"));
+}
+
 test "symbol retains ownership" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -479,4 +512,49 @@ test "symbol retains ownership" {
 
     try std.testing.expectEqualStrings("jello", &input);
     try std.testing.expectEqualStrings("hello", result.sym);
+}
+
+test "read returns a string" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+    const cases = [_]struct {
+        val: []const u8,
+        expected: Value,
+    }{
+        .{
+            .val = "\"\"",
+            .expected = .{ .str = "" },
+        },
+        .{
+            .val = "\"hello\"",
+            .expected = .{ .str = "hello" },
+        },
+        .{
+            .val = "\"hello world\"",
+            .expected = .{ .str = "hello world" },
+        },
+        .{
+            .val = "\"(hello)\"",
+            .expected = .{ .str = "(hello)" },
+        },
+        .{
+            .val = "(\"hello\" (42 \"world\"))",
+            .expected = .{ .list = &.{
+                .{ .str = "hello" },
+                .{
+                    .list = &.{
+                        .{ .int = 42 },
+                        .{ .str = "world" },
+                    },
+                },
+            } },
+        },
+    };
+
+    for (cases) |case| {
+        const result = try read(allocator, case.val);
+        try std.testing.expectEqualDeep(case.expected, result);
+    }
 }
