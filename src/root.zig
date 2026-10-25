@@ -1,63 +1,63 @@
 const std = @import("std");
 
-const Value = union(enum) { int: i32, list: []const Value, sym: []const u8, str: []const u8 };
+const Value = union(enum) {
+    int: i32,
+    list: []const Value,
+    sym: []const u8,
+    str: []const u8,
+};
 
 const Reader = struct {
     input: []const u8,
     allocator: std.mem.Allocator,
     cursor: usize,
 
+    fn skipWhitespace(self: *Reader) void {
+        while (self.cursor < self.input.len and std.ascii.isWhitespace(self.input[self.cursor])) : (self.cursor += 1) {}
+    }
+
     fn readOne(self: *Reader) anyerror!Value {
-        if (self.input.len == 0) {
-            return error.EmptyInput;
+        self.skipWhitespace();
+
+        if (self.cursor == self.input.len) {
+            return error.UnexpectedEndOfInput;
         }
-        while (true) {
-            const token = self.input[self.cursor];
-            if (std.ascii.isWhitespace(token)) {
+
+        const one = try switch (self.input[self.cursor]) {
+            ')' => error.UnexpectedClosingParen,
+            '(' => self.readList(),
+            '"' => self.readString(),
+            else => self.readAtom(),
+        };
+
+        return one;
+    }
+
+    fn readString(self: *Reader) !Value {
+        self.cursor += 1;
+        const start = self.cursor;
+
+        while (self.cursor < self.input.len) : (self.cursor += 1) {
+            if (self.input[self.cursor] == '"') {
+                const contents = self.input[start..self.cursor];
                 self.cursor += 1;
-            } else {
-                break;
+                return .{ .str = try self.allocator.dupe(u8, contents) };
             }
         }
-        if (self.input[self.cursor] == ')') {
-            return error.UnexpectedClosingParen;
-        }
-        if (self.input[self.cursor] == '(') {
-            return self.readList();
-        }
-        return self.readAtom();
+
+        return error.UnexpectedEndOfInput;
     }
 
     fn readAtom(self: *Reader) !Value {
-        var start = self.cursor;
-
-        if (self.input[start] == '"') {
-            self.cursor += 1;
-            start += 1;
-            var endQuote = false;
-            var end = start;
-            while (self.cursor < self.input.len) : (self.cursor += 1) {
-                if (self.input[self.cursor] == '"') {
-                    endQuote = true;
-                    end = self.cursor;
-                    self.cursor += 1;
-                    break;
-                }
-            }
-            if (endQuote) {
-                return .{ .str = self.input[start..end] };
-            } else {
-                return error.UnexpectedEndOfInput;
-            }
-        }
-
+        const start = self.cursor;
         var is_sym = true;
-        for (self.input[start..]) |token| {
-            if (std.ascii.isWhitespace(token) or token == '(' or token == ')') {
+
+        for (self.input[start..]) |byte| {
+            if (std.ascii.isWhitespace(byte) or byte == '(' or byte == ')') {
                 break;
             }
             self.cursor += 1;
-            if (!std.ascii.isAlphabetic(token) and token != '+' and token != '-') {
+            if (!std.ascii.isAlphabetic(byte) and byte != '+' and byte != '-') {
                 is_sym = false;
             }
         }
@@ -82,15 +82,15 @@ const Reader = struct {
         defer elements.deinit(self.allocator);
 
         while (true) {
+            self.skipWhitespace();
+
             if (self.cursor == self.input.len) {
                 return error.UnexpectedEndOfInput;
             }
-            const token = self.input[self.cursor];
-            if (std.ascii.isWhitespace(token)) {
-                self.cursor += 1;
-                continue;
-            }
-            if (token == ')') {
+
+            const byte = self.input[self.cursor];
+
+            if (byte == ')') {
                 self.cursor += 1;
                 break;
             }
@@ -122,11 +122,11 @@ pub fn read(allocator: std.mem.Allocator, val: []const u8) !Value {
     const value = try reader.readOne();
     const remaining = reader.input[reader.cursor..];
 
-    for (remaining) |token| {
-        if (token == ')') {
+    for (remaining) |byte| {
+        if (byte == ')') {
             return error.UnexpectedClosingParen;
         }
-        if (!std.ascii.isWhitespace(token)) {
+        if (!std.ascii.isWhitespace(byte)) {
             return error.TrailingInput;
         }
     }
@@ -274,64 +274,49 @@ test "read returns a list of mixed values" {
 
     const allocator = arena.allocator();
 
-    const cases = .{
+    const cases = [_]struct {
+        val: []const u8,
+        expected: Value,
+    }{
         .{
             .val = "(hello 69 world)",
-            .slice = @as([]const Value, &.{
-                .{ .sym = "hello" },
-                .{ .int = 69 },
-                .{ .sym = "world" },
-            }),
+            .expected = .{
+                .list = &.{
+                    .{ .sym = "hello" },
+                    .{ .int = 69 },
+                    .{ .sym = "world" },
+                },
+            },
         },
         .{
             .val = "(+ 1 2)",
-            .slice = @as([]const Value, &.{
-                .{ .sym = "+" },
-                .{ .int = 1 },
-                .{ .int = 2 },
-            }),
+            .expected = .{
+                .list = &.{
+                    .{ .sym = "+" },
+                    .{ .int = 1 },
+                    .{ .int = 2 },
+                },
+            },
         },
-        .{ .val = "(42 (7 8))", .slice = @as([]const Value, &.{
-            .{ .int = 42 },
-            .{ .list = &.{
-                .{ .int = 7 },
-                .{ .int = 8 },
-            } },
-        }) },
+        .{
+            .val = "(42 (7 8))",
+            .expected = .{
+                .list = &.{
+                    .{ .int = 42 },
+                    .{
+                        .list = &.{
+                            .{ .int = 7 },
+                            .{ .int = 8 },
+                        },
+                    },
+                },
+            },
+        },
     };
 
-    inline for (cases) |case| {
+    for (cases) |case| {
         const result = try read(allocator, case.val);
-        try std.testing.expectEqual(
-            Value.list,
-            std.meta.activeTag(result),
-        );
-        try std.testing.expectEqual(
-            case.slice.len,
-            result.list.len,
-        );
-
-        inline for (case.slice, result.list) |slice_item, list_item| {
-            try std.testing.expectEqual(
-                std.meta.activeTag(slice_item),
-                std.meta.activeTag(list_item),
-            );
-
-            switch (slice_item) {
-                .int => |value| {
-                    try std.testing.expectEqual(value, list_item.int);
-                },
-                .sym => |text| {
-                    try std.testing.expectEqualStrings(text, list_item.sym);
-                },
-                .list => |list| {
-                    try std.testing.expectEqualDeep(list, list_item.list);
-                },
-                .str => |string| {
-                    std.debug.print("%s", .{string});
-                },
-            }
-        }
+        try std.testing.expectEqualDeep(case.expected, result);
     }
 }
 
@@ -512,6 +497,22 @@ test "symbol retains ownership" {
 
     try std.testing.expectEqualStrings("jello", &input);
     try std.testing.expectEqualStrings("hello", result.sym);
+}
+
+test "string retains ownership" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+    var input = "\"hello\"".*;
+    const result = try read(allocator, &input);
+
+    try std.testing.expectEqualStrings("hello", result.str);
+
+    input[1] = 'j';
+
+    try std.testing.expectEqualStrings("\"jello\"", &input);
+    try std.testing.expectEqualStrings("hello", result.str);
 }
 
 test "read returns a string" {
