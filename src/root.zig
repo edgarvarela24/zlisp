@@ -51,7 +51,7 @@ const Reader = struct {
         var is_sym = true;
 
         for (self.input[start..]) |byte| {
-            if (std.ascii.isWhitespace(byte) or byte == '(' or byte == ')') {
+            if (std.ascii.isWhitespace(byte) or byte == '(' or byte == ')' or byte == '"') {
                 break;
             }
             self.cursor += 1;
@@ -156,6 +156,42 @@ test "read returns an integer" {
         .{
             .input = "0",
             .expected = .{ .int = 0 },
+        },
+    };
+
+    for (cases) |case| {
+        const result = try read(allocator, case.input);
+        try std.testing.expectEqualDeep(case.expected, result);
+    }
+}
+
+test "read treats double quotes as atom boundaries" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    const cases = [_]struct {
+        input: []const u8,
+        expected: Value,
+    }{
+        .{
+            .input = "(hello\"world\")",
+            .expected = .{
+                .list = &.{
+                    .{ .sym = "hello" },
+                    .{ .str = "world" },
+                },
+            },
+        },
+        .{
+            .input = "(42\"x\")",
+            .expected = .{
+                .list = &.{
+                    .{ .int = 42 },
+                    .{ .str = "x" },
+                },
+            },
         },
     };
 
