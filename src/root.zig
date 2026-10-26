@@ -48,30 +48,29 @@ const Reader = struct {
 
     fn readAtom(self: *Reader) !Value {
         const start = self.cursor;
-        var is_sym = true;
 
-        for (self.input[start..]) |byte| {
-            if (std.ascii.isWhitespace(byte) or byte == '(' or byte == ')' or byte == '"') {
-                break;
+        const leading_sign = self.input[start] == '-' or self.input[start] == '+';
+        var is_number = leading_sign or std.ascii.isDigit(self.input[start]);
+
+        while (true) : (self.cursor += 1) {
+            if (self.cursor == self.input.len or std.ascii.isWhitespace(self.input[self.cursor]) or self.input[self.cursor] == '(' or self.input[self.cursor] == ')' or self.input[self.cursor] == '"') {
+                const atom = self.input[start..self.cursor];
+
+                if (leading_sign and atom.len == 1) {
+                    is_number = false;
+                }
+
+                if (is_number) {
+                    const int = try std.fmt.parseInt(i32, atom, 10);
+                    return .{ .int = int };
+                }
+                return .{ .sym = try self.allocator.dupe(u8, atom) };
             }
-            self.cursor += 1;
-            if (!std.ascii.isAlphabetic(byte) and byte != '+' and byte != '-') {
-                is_sym = false;
+
+            if (self.cursor != start and !std.ascii.isDigit(self.input[self.cursor])) {
+                is_number = false;
             }
         }
-
-        const atom = self.input[start..self.cursor];
-
-        if (is_sym) {
-            return .{
-                .sym = try self.allocator.dupe(u8, atom),
-            };
-        }
-
-        const int = try std.fmt.parseInt(i32, atom, 10);
-        return .{
-            .int = int,
-        };
     }
 
     fn readList(self: *Reader) !Value {
@@ -224,12 +223,20 @@ test "read returns a symbol" {
             .expected = .{ .sym = "hello" },
         },
         .{
+            .input = "he2llo",
+            .expected = .{ .sym = "he2llo" },
+        },
+        .{
             .input = "+",
             .expected = .{ .sym = "+" },
         },
         .{
             .input = "-",
             .expected = .{ .sym = "-" },
+        },
+        .{
+            .input = "*",
+            .expected = .{ .sym = "*" },
         },
     };
 
@@ -381,6 +388,16 @@ test "read returns a list of mixed values" {
                 },
             },
         },
+        .{
+            .input = "(* 2 3)",
+            .expected = .{
+                .list = &.{
+                    .{ .sym = "*" },
+                    .{ .int = 2 },
+                    .{ .int = 3 },
+                },
+            },
+        },
     };
 
     for (cases) |case| {
@@ -481,7 +498,6 @@ test "read reports error cases" {
         expected: anyerror,
     }{
         .{ .input = "2147483648", .expected = error.Overflow },
-        .{ .input = "he2llo", .expected = error.InvalidCharacter },
         .{ .input = "", .expected = error.EmptyInput },
         .{ .input = "(", .expected = error.UnexpectedEndOfInput },
         .{ .input = "(42", .expected = error.UnexpectedEndOfInput },
