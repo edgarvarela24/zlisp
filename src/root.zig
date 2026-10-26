@@ -23,14 +23,12 @@ const Reader = struct {
             return error.UnexpectedEndOfInput;
         }
 
-        const one = try switch (self.input[self.cursor]) {
+        return try switch (self.input[self.cursor]) {
             ')' => error.UnexpectedClosingParen,
             '(' => self.readList(),
             '"' => self.readString(),
             else => self.readAtom(),
         };
-
-        return one;
     }
 
     fn readString(self: *Reader) !Value {
@@ -105,16 +103,19 @@ const Reader = struct {
     }
 };
 
-/// read expects arena-managed storage for now. returned values remain valid until that
-/// arena is reset or destroyed
-pub fn read(allocator: std.mem.Allocator, val: []const u8) !Value {
-    const trimmed = std.mem.trim(u8, val, &std.ascii.whitespace);
+/// Reads exactly one value with optional surrounding whitespace.
+/// The result does not borrow from `input`.
+///
+/// Expects an arena allocator. Returned storage remains valid until the arena
+/// is reset or destroyed, which also reclaims allocations made before errors.
+pub fn read(allocator: std.mem.Allocator, input: []const u8) !Value {
+    const trimmed = std.mem.trim(u8, input, &std.ascii.whitespace);
     if (trimmed.len == 0) {
         return error.EmptyInput;
     }
 
     var reader = Reader{
-        .input = val,
+        .input = input,
         .allocator = allocator,
         .cursor = 0,
     };
@@ -134,30 +135,33 @@ pub fn read(allocator: std.mem.Allocator, val: []const u8) !Value {
     return value;
 }
 
-test "read returns Lisp value" {
+test "read returns an integer" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
     const allocator = arena.allocator();
 
-    const cases = .{
+    const cases = [_]struct {
+        input: []const u8,
+        expected: Value,
+    }{
         .{
-            .val = "42",
-            .expected = 42,
+            .input = "42",
+            .expected = .{ .int = 42 },
         },
         .{
-            .val = "-42",
-            .expected = -42,
+            .input = "-42",
+            .expected = .{ .int = -42 },
         },
         .{
-            .val = "0",
-            .expected = 0,
+            .input = "0",
+            .expected = .{ .int = 0 },
         },
     };
 
-    inline for (cases) |case| {
-        const result = try read(allocator, case.val);
-        try std.testing.expectEqual(case.expected, result.int);
+    for (cases) |case| {
+        const result = try read(allocator, case.input);
+        try std.testing.expectEqualDeep(case.expected, result);
     }
 }
 
@@ -167,32 +171,35 @@ test "read returns a symbol" {
 
     const allocator = arena.allocator();
 
-    const cases = .{
+    const cases = [_]struct {
+        input: []const u8,
+        expected: Value,
+    }{
         .{
-            .val = "hello",
-            .expected = "hello",
+            .input = "hello",
+            .expected = .{ .sym = "hello" },
         },
         .{
-            .val = "world",
-            .expected = "world",
+            .input = "world",
+            .expected = .{ .sym = "world" },
         },
         .{
-            .val = "  hello  ",
-            .expected = "hello",
+            .input = "  hello  ",
+            .expected = .{ .sym = "hello" },
         },
         .{
-            .val = "+",
-            .expected = "+",
+            .input = "+",
+            .expected = .{ .sym = "+" },
         },
         .{
-            .val = "-",
-            .expected = "-",
+            .input = "-",
+            .expected = .{ .sym = "-" },
         },
     };
 
-    inline for (cases) |case| {
-        const result = try read(allocator, case.val);
-        try std.testing.expectEqualStrings(case.expected, result.sym);
+    for (cases) |case| {
+        const result = try read(allocator, case.input);
+        try std.testing.expectEqualDeep(case.expected, result);
     }
 }
 
@@ -202,41 +209,58 @@ test "read returns a list with elements" {
 
     const allocator = arena.allocator();
 
-    const cases = .{
+    const cases = [_]struct {
+        input: []const u8,
+        expected: Value,
+    }{
         .{
-            .val = "()",
-            .slice = &.{},
+            .input = "()",
+            .expected = .{
+                .list = &.{},
+            },
         },
         .{
-            .val = "(  )",
-            .slice = &.{},
+            .input = "(  )",
+            .expected = .{
+                .list = &.{},
+            },
         },
         .{
-            .val = "   ()   ",
-            .slice = &.{},
+            .input = "   ()   ",
+            .expected = .{
+                .list = &.{},
+            },
         },
         .{
-            .val = "(42)",
-            .slice = &.{42},
+            .input = "(42)",
+            .expected = .{
+                .list = &.{
+                    .{ .int = 42 },
+                },
+            },
         },
         .{
-            .val = "(42 7)",
-            .slice = &.{ 42, 7 },
+            .input = "(42 7)",
+            .expected = .{ .list = &.{
+                .{ .int = 42 },
+                .{ .int = 7 },
+            } },
         },
         .{
-            .val = "(42 7 -1)",
-            .slice = &.{ 42, 7, -1 },
+            .input = "(42 7 -1)",
+            .expected = .{
+                .list = &.{
+                    .{ .int = 42 },
+                    .{ .int = 7 },
+                    .{ .int = -1 },
+                },
+            },
         },
     };
 
-    inline for (cases) |case| {
-        const result = try read(allocator, case.val);
-        try std.testing.expectEqual(Value.list, std.meta.activeTag(result));
-        try std.testing.expectEqual(case.slice.len, result.list.len);
-
-        inline for (case.slice, result.list) |slice_item, list_item| {
-            try std.testing.expectEqual(slice_item, list_item.int);
-        }
+    for (cases) |case| {
+        const result = try read(allocator, case.input);
+        try std.testing.expectEqualDeep(case.expected, result);
     }
 }
 
@@ -246,25 +270,34 @@ test "read returns a list of symbols" {
 
     const allocator = arena.allocator();
 
-    const cases = .{
+    const cases = [_]struct {
+        input: []const u8,
+        expected: Value,
+    }{
         .{
-            .val = "(hello world)",
-            .slice = &.{ "hello", "world" },
+            .input = "(hello world)",
+            .expected = .{
+                .list = &.{
+                    .{ .sym = "hello" },
+                    .{ .sym = "world" },
+                },
+            },
         },
         .{
-            .val = "(+ x y)",
-            .slice = &.{ "+", "x", "y" },
+            .input = "(+ x y)",
+            .expected = .{
+                .list = &.{
+                    .{ .sym = "+" },
+                    .{ .sym = "x" },
+                    .{ .sym = "y" },
+                },
+            },
         },
     };
 
-    inline for (cases) |case| {
-        const result = try read(allocator, case.val);
-        try std.testing.expectEqual(Value.list, std.meta.activeTag(result));
-        try std.testing.expectEqual(case.slice.len, result.list.len);
-
-        inline for (case.slice, result.list) |slice_item, list_item| {
-            try std.testing.expectEqualStrings(slice_item, list_item.sym);
-        }
+    for (cases) |case| {
+        const result = try read(allocator, case.input);
+        try std.testing.expectEqualDeep(case.expected, result);
     }
 }
 
@@ -275,11 +308,11 @@ test "read returns a list of mixed values" {
     const allocator = arena.allocator();
 
     const cases = [_]struct {
-        val: []const u8,
+        input: []const u8,
         expected: Value,
     }{
         .{
-            .val = "(hello 69 world)",
+            .input = "(hello 69 world)",
             .expected = .{
                 .list = &.{
                     .{ .sym = "hello" },
@@ -289,7 +322,7 @@ test "read returns a list of mixed values" {
             },
         },
         .{
-            .val = "(+ 1 2)",
+            .input = "(+ 1 2)",
             .expected = .{
                 .list = &.{
                     .{ .sym = "+" },
@@ -299,7 +332,7 @@ test "read returns a list of mixed values" {
             },
         },
         .{
-            .val = "(42 (7 8))",
+            .input = "(42 (7 8))",
             .expected = .{
                 .list = &.{
                     .{ .int = 42 },
@@ -315,7 +348,7 @@ test "read returns a list of mixed values" {
     };
 
     for (cases) |case| {
-        const result = try read(allocator, case.val);
+        const result = try read(allocator, case.input);
         try std.testing.expectEqualDeep(case.expected, result);
     }
 }
@@ -407,18 +440,21 @@ test "read reports error cases" {
     defer arena.deinit();
 
     const allocator = arena.allocator();
-    const cases = .{
-        .{ .val = "2147483648", .expected = error.Overflow },
-        .{ .val = "he2llo", .expected = error.InvalidCharacter },
-        .{ .val = "", .expected = error.EmptyInput },
-        .{ .val = "(", .expected = error.UnexpectedEndOfInput },
-        .{ .val = "(42", .expected = error.UnexpectedEndOfInput },
-        .{ .val = "((42)", .expected = error.UnexpectedEndOfInput },
-        .{ .val = "(42 \t\n", .expected = error.UnexpectedEndOfInput },
+    const cases = [_]struct {
+        input: []const u8,
+        expected: anyerror,
+    }{
+        .{ .input = "2147483648", .expected = error.Overflow },
+        .{ .input = "he2llo", .expected = error.InvalidCharacter },
+        .{ .input = "", .expected = error.EmptyInput },
+        .{ .input = "(", .expected = error.UnexpectedEndOfInput },
+        .{ .input = "(42", .expected = error.UnexpectedEndOfInput },
+        .{ .input = "((42)", .expected = error.UnexpectedEndOfInput },
+        .{ .input = "(42 \t\n", .expected = error.UnexpectedEndOfInput },
     };
 
-    inline for (cases) |case| {
-        try std.testing.expectError(case.expected, read(allocator, case.val));
+    for (cases) |case| {
+        try std.testing.expectError(case.expected, read(allocator, case.input));
     }
 }
 
@@ -427,14 +463,14 @@ test "read rejects whitespace-only input" {
     defer arena.deinit();
 
     const allocator = arena.allocator();
-    const cases = .{
-        " ",
-        "\t\n",
-        " \t\r\n ",
+    const cases = [_]struct { input: []const u8 }{
+        .{ .input = " " },
+        .{ .input = "\t\n" },
+        .{ .input = " \t\r\n " },
     };
 
-    inline for (cases) |input| {
-        try std.testing.expectError(error.EmptyInput, read(allocator, input));
+    for (cases) |case| {
+        try std.testing.expectError(error.EmptyInput, read(allocator, case.input));
     }
 }
 
@@ -443,10 +479,16 @@ test "read rejects unexpected closing parentheses" {
     defer arena.deinit();
 
     const allocator = arena.allocator();
-    const cases = .{ ")", ")(", "  )" };
+    const cases = [_]struct {
+        input: []const u8,
+    }{
+        .{ .input = ")" },
+        .{ .input = ")(" },
+        .{ .input = "  )" },
+    };
 
-    inline for (cases) |input| {
-        try std.testing.expectError(error.UnexpectedClosingParen, read(allocator, input));
+    for (cases) |case| {
+        try std.testing.expectError(error.UnexpectedClosingParen, read(allocator, case.input));
     }
 }
 
@@ -455,10 +497,17 @@ test "read rejects extra closing parentheses" {
     defer arena.deinit();
 
     const allocator = arena.allocator();
-    const cases = .{ "(42))", "(42) )", "42)", "((42)))" };
+    const cases = [_]struct {
+        input: []const u8,
+    }{
+        .{ .input = "(42))" },
+        .{ .input = "(42) )" },
+        .{ .input = "42)" },
+        .{ .input = "((42)))" },
+    };
 
-    inline for (cases) |input| {
-        try std.testing.expectError(error.UnexpectedClosingParen, read(allocator, input));
+    for (cases) |case| {
+        try std.testing.expectError(error.UnexpectedClosingParen, read(allocator, case.input));
     }
 }
 
@@ -467,10 +516,16 @@ test "read rejects trailing values" {
     defer arena.deinit();
 
     const allocator = arena.allocator();
-    const cases = .{ "42 7", "(42) 7", "(42) (7)" };
+    const cases = [_]struct {
+        input: []const u8,
+    }{
+        .{ .input = "42 7" },
+        .{ .input = "(42) 7" },
+        .{ .input = "(42) (7)" },
+    };
 
-    inline for (cases) |input| {
-        try std.testing.expectError(error.TrailingInput, read(allocator, input));
+    for (cases) |case| {
+        try std.testing.expectError(error.TrailingInput, read(allocator, case.input));
     }
 }
 
@@ -483,7 +538,7 @@ test "read rejects unfinished strings" {
     try std.testing.expectError(error.UnexpectedEndOfInput, read(allocator, "\"unfinished"));
 }
 
-test "symbol retains ownership" {
+test "read returns a symbol independent of the input buffer" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
@@ -499,7 +554,7 @@ test "symbol retains ownership" {
     try std.testing.expectEqualStrings("hello", result.sym);
 }
 
-test "string retains ownership" {
+test "read returns a string independent of the input buffer" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
@@ -521,27 +576,27 @@ test "read returns a string" {
 
     const allocator = arena.allocator();
     const cases = [_]struct {
-        val: []const u8,
+        input: []const u8,
         expected: Value,
     }{
         .{
-            .val = "\"\"",
+            .input = "\"\"",
             .expected = .{ .str = "" },
         },
         .{
-            .val = "\"hello\"",
+            .input = "\"hello\"",
             .expected = .{ .str = "hello" },
         },
         .{
-            .val = "\"hello world\"",
+            .input = "\"hello world\"",
             .expected = .{ .str = "hello world" },
         },
         .{
-            .val = "\"(hello)\"",
+            .input = "\"(hello)\"",
             .expected = .{ .str = "(hello)" },
         },
         .{
-            .val = "(\"hello\" (42 \"world\"))",
+            .input = "(\"hello\" (42 \"world\"))",
             .expected = .{ .list = &.{
                 .{ .str = "hello" },
                 .{
@@ -555,7 +610,7 @@ test "read returns a string" {
     };
 
     for (cases) |case| {
-        const result = try read(allocator, case.val);
+        const result = try read(allocator, case.input);
         try std.testing.expectEqualDeep(case.expected, result);
     }
 }
