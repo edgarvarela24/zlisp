@@ -1,11 +1,5 @@
 const std = @import("std");
-
-const Value = union(enum) {
-    int: i32,
-    list: []const Value,
-    sym: []const u8,
-    str: []const u8,
-};
+const Value = @import("value.zig").Value;
 
 const Reader = struct {
     input: []const u8,
