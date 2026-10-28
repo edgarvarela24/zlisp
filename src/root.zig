@@ -32,15 +32,26 @@ const Reader = struct {
     }
 
     fn readString(self: *Reader) !Value {
+        var elements: std.ArrayList(u8) = .empty;
+        defer elements.deinit(self.allocator);
+
         self.cursor += 1;
-        const start = self.cursor;
 
         while (self.cursor < self.input.len) : (self.cursor += 1) {
-            if (self.input[self.cursor] == '"') {
-                const contents = self.input[start..self.cursor];
+            if (self.input[self.cursor] == '\\') {
                 self.cursor += 1;
-                return .{ .str = try self.allocator.dupe(u8, contents) };
+                if (self.cursor == self.input.len) {
+                    break;
+                }
+                try elements.append(self.allocator, self.input[self.cursor]);
+                continue;
             }
+            if (self.input[self.cursor] == '"') {
+                self.cursor += 1;
+                const contents = try elements.toOwnedSlice(self.allocator);
+                return .{ .str = contents };
+            }
+            try elements.append(self.allocator, self.input[self.cursor]);
         }
 
         return error.UnexpectedEndOfInput;
@@ -622,6 +633,14 @@ test "read returns a string independent of the input buffer" {
     try std.testing.expectEqualStrings("hello", result.str);
 }
 
+test "read returns an error for unterminated escape sequence" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+    try std.testing.expectError(error.UnexpectedEndOfInput, read(allocator, "\"hello\\"));
+}
+
 test "read returns a string" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -638,6 +657,10 @@ test "read returns a string" {
         .{
             .input = "\"hello\"",
             .expected = .{ .str = "hello" },
+        },
+        .{
+            .input = "\"hello \\\"world\\\"\"",
+            .expected = .{ .str = "hello \"world\"" },
         },
         .{
             .input = "\"hello world\"",
