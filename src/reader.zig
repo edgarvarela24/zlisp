@@ -1,6 +1,13 @@
 const std = @import("std");
 const Value = @import("value.zig").Value;
 
+pub const Error = std.mem.Allocator.Error || std.fmt.ParseIntError || error{
+    EmptyInput,
+    UnexpectedEndOfInput,
+    UnexpectedClosingParen,
+    TrailingInput,
+};
+
 const Reader = struct {
     input: []const u8,
     allocator: std.mem.Allocator,
@@ -10,7 +17,7 @@ const Reader = struct {
         while (self.cursor < self.input.len and std.ascii.isWhitespace(self.input[self.cursor])) : (self.cursor += 1) {}
     }
 
-    fn readOne(self: *Reader) anyerror!Value {
+    fn readOne(self: *Reader) Error!Value {
         self.skipWhitespace();
 
         if (self.cursor == self.input.len) {
@@ -119,7 +126,7 @@ const Reader = struct {
 ///
 /// Expects an arena allocator. Returned storage remains valid until the arena
 /// is reset or destroyed, which also reclaims allocations made before errors.
-pub fn read(allocator: std.mem.Allocator, input: []const u8) !Value {
+pub fn read(allocator: std.mem.Allocator, input: []const u8) Error!Value {
     const trimmed = std.mem.trim(u8, input, &std.ascii.whitespace);
     if (trimmed.len == 0) {
         return error.EmptyInput;
@@ -507,7 +514,7 @@ test "read reports error cases" {
     const allocator = arena.allocator();
     const cases = [_]struct {
         input: []const u8,
-        expected: anyerror,
+        expected: Error,
     }{
         .{ .input = "2147483648", .expected = error.Overflow },
         .{ .input = "", .expected = error.EmptyInput },
