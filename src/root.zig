@@ -43,7 +43,14 @@ const Reader = struct {
                 if (self.cursor == self.input.len) {
                     break;
                 }
-                try elements.append(self.allocator, self.input[self.cursor]);
+                const escaped = self.input[self.cursor];
+                const decoded: u8 = switch (escaped) {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    else => escaped,
+                };
+                try elements.append(self.allocator, decoded);
                 continue;
             }
             if (self.input[self.cursor] == '"') {
@@ -659,10 +666,6 @@ test "read returns a string" {
             .expected = .{ .str = "hello" },
         },
         .{
-            .input = "\"hello \\\"world\\\"\"",
-            .expected = .{ .str = "hello \"world\"" },
-        },
-        .{
             .input = "\"hello world\"",
             .expected = .{ .str = "hello world" },
         },
@@ -681,6 +684,47 @@ test "read returns a string" {
                     },
                 },
             } },
+        },
+    };
+
+    for (cases) |case| {
+        const result = try read(allocator, case.input);
+        try std.testing.expectEqualDeep(case.expected, result);
+    }
+}
+
+test "read decodes string escape sequences" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+    const cases = [_]struct {
+        input: []const u8,
+        expected: Value,
+    }{
+        .{
+            .input = "\"hello \\\"world\\\"\"",
+            .expected = .{ .str = "hello \"world\"" },
+        },
+        .{
+            .input = "\"hello\\nworld\"",
+            .expected = .{ .str = "hello\nworld" },
+        },
+        .{
+            .input = "\"\\t\\thello world\"",
+            .expected = .{ .str = "\t\thello world" },
+        },
+        .{
+            .input = "\"hello world\\r\\r\"",
+            .expected = .{ .str = "hello world\r\r" },
+        },
+        .{
+            .input = "\"hello\\\\\"",
+            .expected = .{ .str = "hello\\" },
+        },
+        .{
+            .input = "\"hello\\\\nworld\"",
+            .expected = .{ .str = "hello\\nworld" },
         },
     };
 
