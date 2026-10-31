@@ -21,8 +21,79 @@ pub fn print(writer: *std.Io.Writer, value: Value) std.Io.Writer.Error!void {
 
             try writer.writeByte('"');
         },
-        else => std.debug.print("not supported", .{}),
+        .list => |list| {
+            try writer.writeByte('(');
+
+            for (list, 0..) |element, i| {
+                if (i != 0) {
+                    try writer.writeByte(' ');
+                }
+                try print(writer, element);
+            }
+
+            try writer.writeByte(')');
+        },
     };
+}
+
+test "print list value to a fixed-buffer writer" {
+    const cases = [_]struct {
+        val: Value,
+        expected: []const u8,
+    }{
+        .{
+            .val = .{
+                .list = &.{},
+            },
+            .expected = "()",
+        },
+        .{
+            .val = .{
+                .list = &.{
+                    .{ .int = 420 },
+                },
+            },
+            .expected = "(420)",
+        },
+        .{
+            .val = .{
+                .list = &.{
+                    .{ .int = 420 },
+                    .{ .str = "blazeit" },
+                },
+            },
+            .expected = "(420 \"blazeit\")",
+        },
+        .{
+            .val = .{
+                .list = &.{
+                    .{ .int = 1 },
+                    .{
+                        .list = &.{
+                            .{ .int = 2 },
+                        },
+                    },
+                    .{ .int = 3 },
+                },
+            },
+            .expected = "(1 (2) 3)",
+        },
+    };
+
+    for (cases) |case| {
+        var buf: [64]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+
+        try print(
+            &writer,
+            case.val,
+        );
+
+        try std.testing.expectEqualStrings(
+            case.expected,
+            writer.buffered(),
+        );
+    }
 }
 
 test "print integer value to fixed-buffer writer" {
