@@ -5,6 +5,23 @@ pub fn eval(value: Value) !Value {
     return switch (value) {
         .int => |int| .{ .int = int },
         .str => |str| .{ .str = str },
+        .list => |list| {
+            if (list.len == 0) {
+                return .{ .list = &.{} };
+            }
+            const first = list[0];
+            return switch (first) {
+                .sym => |sym| {
+                    return switch (sym[0]) {
+                        '+' => {
+                            return .{ .int = list[1].int + list[2].int };
+                        },
+                        else => error.UnsupportedOperation,
+                    };
+                },
+                else => error.UnsupportedValue,
+            };
+        },
         else => error.UnsupportedValue,
     };
 }
@@ -57,4 +74,17 @@ test "evaluates strings as themselves" {
         const result = eval(case.input);
         try std.testing.expectEqualDeep(case.expected, result);
     }
+}
+
+test "evaluates a basic builtin arithmetic call" {
+    const input: Value = .{
+        .list = &.{
+            .{ .sym = "+" },
+            .{ .int = 1 },
+            .{ .int = 2 },
+        },
+    };
+    const expected: Value = .{ .int = 3 };
+    const result = eval(input);
+    try std.testing.expectEqualDeep(expected, result);
 }
