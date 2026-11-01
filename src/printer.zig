@@ -38,17 +38,17 @@ pub fn print(writer: *std.Io.Writer, value: Value) std.Io.Writer.Error!void {
 
 test "print list value to a fixed-buffer writer" {
     const cases = [_]struct {
-        val: Value,
+        value: Value,
         expected: []const u8,
     }{
         .{
-            .val = .{
+            .value = .{
                 .list = &.{},
             },
             .expected = "()",
         },
         .{
-            .val = .{
+            .value = .{
                 .list = &.{
                     .{ .int = 420 },
                 },
@@ -56,7 +56,7 @@ test "print list value to a fixed-buffer writer" {
             .expected = "(420)",
         },
         .{
-            .val = .{
+            .value = .{
                 .list = &.{
                     .{ .int = 420 },
                     .{ .str = "blazeit" },
@@ -65,7 +65,7 @@ test "print list value to a fixed-buffer writer" {
             .expected = "(420 \"blazeit\")",
         },
         .{
-            .val = .{
+            .value = .{
                 .list = &.{
                     .{ .int = 1 },
                     .{
@@ -86,7 +86,7 @@ test "print list value to a fixed-buffer writer" {
 
         try print(
             &writer,
-            case.val,
+            case.value,
         );
 
         try std.testing.expectEqualStrings(

@@ -51,7 +51,7 @@ test "reader printer integration" {
 
     try print(&writer, value);
 
-    try std.testing.expectEqualDeep(input, writer.buffered());
+    try std.testing.expectEqualStrings(input, writer.buffered());
 
     const reread = try read(allocator, writer.buffered());
     try std.testing.expectEqualDeep(value, reread);
