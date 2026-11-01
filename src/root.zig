@@ -2,7 +2,7 @@ const std = @import("std");
 
 const reader = @import("reader.zig");
 const printer = @import("printer.zig");
-const Value = @import("value.zig").Value;
+pub const Value = @import("value.zig").Value;
 
 pub const read = reader.read;
 pub const print = printer.print;
