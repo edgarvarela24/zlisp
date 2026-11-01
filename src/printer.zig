@@ -123,6 +123,15 @@ test "print string value to fixed-buffer writer" {
     try std.testing.expectEqualStrings("\"YOLO\"", writer.buffered());
 }
 
+test "print empty string" {
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+
+    try print(&writer, .{ .str = "" });
+
+    try std.testing.expectEqualStrings("\"\"", writer.buffered());
+}
+
 test "print escaped string value to fixed-buffer writer" {
     const cases = [_]struct {
         contents: []const u8,
@@ -166,4 +175,22 @@ test "print escaped string value to fixed-buffer writer" {
 
         try std.testing.expectEqualStrings(case.expected, writer.buffered());
     }
+}
+
+test "undersized buffer propagates error" {
+    // Run out of space while printing the nested string
+    var buf: [16]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    const value: Value = .{
+        .list = &.{
+            .{ .str = "\"hi\"" },
+            .{
+                .list = &.{
+                    .{ .str = "\"my\"" },
+                },
+            },
+            .{ .str = "\"dawg\"" },
+        },
+    };
+    try std.testing.expectError(error.WriteFailed, print(&writer, value));
 }
