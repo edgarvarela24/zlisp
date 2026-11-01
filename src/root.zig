@@ -2,14 +2,18 @@ const std = @import("std");
 
 const reader = @import("reader.zig");
 const printer = @import("printer.zig");
+const evaluator = @import("eval.zig");
+
 pub const Value = @import("value.zig").Value;
 
 pub const read = reader.read;
 pub const print = printer.print;
+pub const eval = evaluator.eval;
 
 test {
     _ = printer;
     _ = reader;
+    _ = eval;
 }
 
 test "reader printer integration" {

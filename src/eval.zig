@@ -1,0 +1,60 @@
+const std = @import("std");
+const Value = @import("value.zig").Value;
+
+pub fn eval(value: Value) !Value {
+    return switch (value) {
+        .int => |int| .{ .int = int },
+        .str => |str| .{ .str = str },
+        else => error.UnsupportedValue,
+    };
+}
+
+test "evaluates integers" {
+    const cases = [_]struct {
+        input: Value,
+        expected: Value,
+    }{
+        .{
+            .input = .{ .int = 42 },
+            .expected = .{ .int = 42 },
+        },
+        .{
+            .input = .{ .int = -7 },
+            .expected = .{ .int = -7 },
+        },
+        .{
+            .input = .{ .int = 0 },
+            .expected = .{ .int = 0 },
+        },
+    };
+
+    for (cases) |case| {
+        const result = eval(case.input);
+        try std.testing.expectEqualDeep(case.expected, result);
+    }
+}
+
+test "evaluates strings as themselves" {
+    const cases = [_]struct {
+        input: Value,
+        expected: Value,
+    }{
+        .{
+            .input = .{ .str = "\"hello\"" },
+            .expected = .{ .str = "\"hello\"" },
+        },
+        .{
+            .input = .{ .str = "" },
+            .expected = .{ .str = "" },
+        },
+        .{
+            .input = .{ .str = "line\\\nbreak" },
+            .expected = .{ .str = "line\\\nbreak" },
+        },
+    };
+
+    for (cases) |case| {
+        const result = eval(case.input);
+        try std.testing.expectEqualDeep(case.expected, result);
+    }
+}
