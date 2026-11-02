@@ -60,3 +60,24 @@ test "reader printer integration" {
     const reread = try read(allocator, writer.buffered());
     try std.testing.expectEqualDeep(value, reread);
 }
+
+test "reader printer evaluator integration" {
+    const input = "(+ 1 2)";
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    const value = try read(allocator, input);
+
+    const expected: Value = .{
+        .list = &.{
+            .{ .sym = "+" },
+            .{ .int = 1 },
+            .{ .int = 2 },
+        },
+    };
+
+    try std.testing.expectEqualDeep(expected, value);
+}
