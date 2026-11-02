@@ -62,7 +62,7 @@ test "reader printer integration" {
 }
 
 test "reader printer evaluator integration" {
-    const input = "(+ 1 2)";
+    const input = "(+ 1 2 3 4)";
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -76,8 +76,16 @@ test "reader printer evaluator integration" {
             .{ .sym = "+" },
             .{ .int = 1 },
             .{ .int = 2 },
+            .{ .int = 3 },
+            .{ .int = 4 },
         },
     };
 
     try std.testing.expectEqualDeep(expected, value);
+
+    const result = eval(allocator, value);
+
+    const expected_result: Value = .{ .int = 10 };
+
+    try std.testing.expectEqualDeep(expected_result, result);
 }
