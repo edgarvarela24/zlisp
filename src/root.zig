@@ -83,9 +83,16 @@ test "reader printer evaluator integration" {
 
     try std.testing.expectEqualDeep(expected, value);
 
-    const result = eval(allocator, value);
+    const result = try eval(allocator, value);
 
     const expected_result: Value = .{ .int = 10 };
 
     try std.testing.expectEqualDeep(expected_result, result);
+
+    var buf: [64]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+
+    try print(&writer, result);
+
+    try std.testing.expectEqualStrings("10", writer.buffered());
 }
