@@ -1,36 +1,12 @@
 const std = @import("std");
 const Value = @import("value.zig").Value;
 
-fn add(args: []const Value) Value {
-    var sum: i32 = 0;
-    for (args) |arg| {
-        sum += switch (arg) {
-            .int => |int| int,
-            else => 0, // For simplicity, treat non-integer values as 0
-        };
-    }
-    return .{ .int = sum };
-}
+const builtins = @import("builtins.zig");
+const BuiltinMap = builtins.BuiltinMap;
 
 const Evaluator = struct {
     input: Value,
-    allocator: std.mem.Allocator,
-    stdFns: std.StringHashMap(*const fn (args: []const Value) Value),
-
-    pub fn init(allocator: std.mem.Allocator, input: Value) !Evaluator {
-        var stdFns = std.StringHashMap(*const fn (args: []const Value) Value).init(allocator);
-
-        try stdFns.put(
-            "+",
-            &add,
-        );
-
-        return Evaluator{
-            .input = input,
-            .allocator = allocator,
-            .stdFns = stdFns,
-        };
-    }
+    builtins: *const BuiltinMap,
 
     fn evaluate(self: *Evaluator) !Value {
         return switch (self.input) {
@@ -40,12 +16,12 @@ const Evaluator = struct {
                 if (list.len == 0) {
                     return .{ .list = &.{} };
                 }
-                const first = list[0];
 
+                const first = list[0];
                 return switch (first) {
                     .sym => |sym| {
-                        const stdFn = self.stdFns.get(sym) orelse return error.UnsupportedOperation;
-                        return stdFn(list[1..]);
+                        const builtin = self.builtins.get(sym) orelse return error.UnsupportedOperation;
+                        return builtin(list[1..]);
                     },
                     else => error.UnsupportedValue,
                 };
@@ -55,19 +31,18 @@ const Evaluator = struct {
     }
 };
 
-pub fn eval(allocator: std.mem.Allocator, value: Value) !Value {
-    var evaluator = try Evaluator.init(allocator, value);
-
+pub fn eval(built_ins: *const BuiltinMap, value: Value) !Value {
+    var evaluator = Evaluator{
+        .input = value,
+        .builtins = built_ins,
+    };
     const result: Value = try evaluator.evaluate();
-
     return result;
 }
 
 test "evaluates integers" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const allocator = arena.allocator();
+    var registry = try builtins.init(std.testing.allocator);
+    defer registry.deinit();
 
     const cases = [_]struct {
         input: Value,
@@ -88,16 +63,14 @@ test "evaluates integers" {
     };
 
     for (cases) |case| {
-        const result = eval(allocator, case.input);
+        const result = eval(&registry, case.input);
         try std.testing.expectEqualDeep(case.expected, result);
     }
 }
 
 test "evaluates strings as themselves" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const allocator = arena.allocator();
+    var registry = try builtins.init(std.testing.allocator);
+    defer registry.deinit();
 
     const cases = [_]struct {
         input: Value,
@@ -118,16 +91,14 @@ test "evaluates strings as themselves" {
     };
 
     for (cases) |case| {
-        const result = eval(allocator, case.input);
+        const result = eval(&registry, case.input);
         try std.testing.expectEqualDeep(case.expected, result);
     }
 }
 
 test "evaluates a basic builtin arithmetic call" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const allocator = arena.allocator();
+    var registry = try builtins.init(std.testing.allocator);
+    defer registry.deinit();
 
     const input: Value = .{
         .list = &.{
@@ -137,6 +108,6 @@ test "evaluates a basic builtin arithmetic call" {
         },
     };
     const expected: Value = .{ .int = 3 };
-    const result = eval(allocator, input);
+    const result = eval(&registry, input);
     try std.testing.expectEqualDeep(expected, result);
 }

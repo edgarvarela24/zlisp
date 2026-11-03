@@ -3,6 +3,7 @@ const std = @import("std");
 const reader = @import("reader.zig");
 const printer = @import("printer.zig");
 const evaluator = @import("eval.zig");
+pub const builtins = @import("builtins.zig");
 
 pub const Value = @import("value.zig").Value;
 
@@ -82,8 +83,10 @@ test "reader printer evaluator integration" {
     };
 
     try std.testing.expectEqualDeep(expected, value);
+    var registry = try builtins.init(std.testing.allocator);
+    defer registry.deinit();
 
-    const result = try eval(allocator, value);
+    const result = try eval(&registry, value);
 
     const expected_result: Value = .{ .int = 10 };
 
