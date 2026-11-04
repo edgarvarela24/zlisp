@@ -86,7 +86,7 @@ test "reader printer evaluator integration" {
     var registry = try builtins.init(std.testing.allocator);
     defer registry.deinit();
 
-    const result = try eval(&registry, value);
+    const result = try eval(allocator, &registry, value);
 
     const expected_result: Value = .{ .int = 10 };
 
