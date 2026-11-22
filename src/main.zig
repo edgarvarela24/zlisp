@@ -12,26 +12,21 @@ pub fn main(init: std.process.Init) !void {
     var stdout_file_writer = Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout_writer = &stdout_file_writer.interface;
 
-    var builtins = try zlisp.builtins.init(init.gpa);
-    defer builtins.deinit();
+    var runtime = try zlisp.Runtime.init(init.gpa);
+    defer runtime.deinit();
 
     while (try stdin_reader.takeDelimiter('\n')) |line| {
-        var arena = std.heap.ArenaAllocator.init(init.gpa);
-        defer arena.deinit();
-
-        const allocator = arena.allocator();
-
-        const value = zlisp.read(allocator, line) catch |err| {
+        const value = runtime.read(line) catch |err| {
             std.log.err("Read failed: {s}", .{@errorName(err)});
             continue;
         };
 
-        const result = zlisp.eval(allocator, &builtins, value) catch |err| {
+        const result = runtime.eval(value) catch |err| {
             std.log.err("Evaluation failed: {s}", .{@errorName(err)});
             continue;
         };
 
-        zlisp.print(stdout_writer, result) catch |err| {
+        runtime.print(stdout_writer, result) catch |err| {
             std.log.err("Print failed: {s}", .{@errorName(err)});
             continue;
         };

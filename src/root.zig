@@ -3,13 +3,14 @@ const std = @import("std");
 const reader = @import("reader.zig");
 const printer = @import("printer.zig");
 const evaluator = @import("eval.zig");
-pub const builtins = @import("builtins.zig");
+pub const Runtime = @import("runtime.zig").Runtime;
 
+const builtins = @import("builtins.zig");
 pub const Value = @import("value.zig").Value;
 
-pub const read = reader.read;
-pub const print = printer.print;
-pub const eval = evaluator.eval;
+const read = reader.read;
+const print = printer.print;
+const eval = evaluator.eval;
 
 test {
     _ = printer;
@@ -17,17 +18,15 @@ test {
     _ = eval;
 }
 
-test "reader printer integration" {
+test "runtime read print roundtrip" {
     const input =
         \\(42 hello ("line\nbreak" "say \"hi\"" "a\\b") () -7)
     ;
 
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
+    var runtime = try Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
 
-    const allocator = arena.allocator();
-
-    const value = try read(allocator, input);
+    const value = try runtime.read(input);
 
     const expected: Value = .{
         .list = &.{
@@ -54,23 +53,21 @@ test "reader printer integration" {
     var buf: [64]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
 
-    try print(&writer, value);
+    try runtime.print(&writer, value);
 
     try std.testing.expectEqualStrings(input, writer.buffered());
 
-    const reread = try read(allocator, writer.buffered());
+    const reread = try runtime.read(writer.buffered());
     try std.testing.expectEqualDeep(value, reread);
 }
 
-test "reader printer evaluator integration" {
+test "runtime reader printer evaluator integration" {
     const input = "(+ 1 2 3 4)";
 
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
+    var runtime = try Runtime.init(std.testing.allocator);
+    defer runtime.deinit();
 
-    const allocator = arena.allocator();
-
-    const value = try read(allocator, input);
+    const value = try runtime.read(input);
 
     const expected: Value = .{
         .list = &.{
@@ -83,10 +80,8 @@ test "reader printer evaluator integration" {
     };
 
     try std.testing.expectEqualDeep(expected, value);
-    var registry = try builtins.init(std.testing.allocator);
-    defer registry.deinit();
 
-    const result = try eval(allocator, &registry, value);
+    const result = try runtime.eval(value);
 
     const expected_result: Value = .{ .int = 10 };
 
@@ -95,7 +90,7 @@ test "reader printer evaluator integration" {
     var buf: [64]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buf);
 
-    try print(&writer, result);
+    try runtime.print(&writer, result);
 
     try std.testing.expectEqualStrings("10", writer.buffered());
 }
