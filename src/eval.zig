@@ -149,3 +149,23 @@ test "evaluates nested builtin calls" {
 
     try std.testing.expectEqualDeep(expected, result);
 }
+
+test "nested errors propagate" {
+    var registry = try builtins.init(std.testing.allocator);
+    defer registry.deinit();
+
+    const input: Value = .{
+        .list = &.{
+            .{ .sym = "+" },
+            .{ .int = 1 },
+            .{
+                .list = &.{
+                    .{ .sym = "+" },
+                    .{ .int = 2 },
+                    .{ .str = "bad" },
+                },
+            },
+        },
+    };
+    try std.testing.expectError(Error.UnsupportedValue, eval(std.testing.allocator, &registry, input));
+}
